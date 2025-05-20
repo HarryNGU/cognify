@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Map Generator</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .drag-area {
+            border: 2px dashed #1a73e8;
+            min-height: 200px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            transition: all 0.3s ease;
+        }
+        .drag-area.active {
+            border: 2px solid #009688;
+            background-color: rgba(0, 150, 136, 0.1);
+        }
+        .knowledge-map {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .node {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .node:hover {
+            stroke: #1a73e8;
+            stroke-width: 2px;
+        }
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+        }
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 10px;
+            z-index: 100;
+        }
+        .control-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 5px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .control-btn:hover {
+            background: #f3f4f6;
+            transform: scale(1.05);
+        }
+        .filter-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 15px;
+            z-index: 100;
+            max-width: 250px;
+        }
+        .search-bar {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 10px 15px;
+            z-index: 100;
+        }
+        .tooltip {
+            position: absolute;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 10px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            max-width: 300px;
+            z-index: 200;
+        }
+        .view-buttons {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            z-index: 100;
+        }
+        .view-btn {
+            padding: 8px 15px;
+            margin-right: 5px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .view-btn.active {
+            background: #1a73e8;
+            color: white;
+            border-color: #1a73e8;
+        }
+        .view-btn:hover:not(.active) {
+            background: #f3f4f6;
+        }
+        .loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 300;
+        }
+        .spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #1a73e8;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .file-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            background: #f9fafb;
+        }
+        .file-item .status {
+            margin-left: auto;
+            font-size: 0.8rem;
+        }
+        .file-item .status.success {
+            color: #10b981;
+        }
+        .file-item .status.processing {
+            color: #f59e0b;
+        }
+        .file-item .status.error {
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-10 text-center">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">Knowledge Map Generator</h1>
+            <p class="text-xl text-gray-600">Upload learning materials to generate interactive knowledge maps</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Upload Section -->
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4">Upload Materials</h2>
+                
+                <div class="drag-area mb-4" id="drop-area">
+                    <div class="text-center p-6">
+                        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                        <p class="mt-2 text-gray-600">Drag and drop files here, or click to select files</p>
+                        <p class="text-sm text-gray-500 mt-1">Supported formats: PDF, TXT, PPTX, HTML, JPG, PNG</p>
+                    </div>
+                    <input type="file" id="file-input" multiple class="hidden">
+                </div>
+                
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-medium text-gray-700">Uploaded Files</h3>
+                    <button id="process-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        Process Materials
+                    </button>
+                </div>
+                
+                <div id="file-list" class="file-list">
+                    <div class="text-gray-500 text-center py-4">No files uploaded yet</div>
+                </div>
+            </div>
+
+            <!-- Knowledge Map Section -->
+            <div class="bg-white p-6 rounded-lg shadow-md relative">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4">Knowledge Map</h2>
+                
+                <div id="knowledge-map-container" class="knowledge-map relative">
+                    <div class="flex items-center justify-center h-full">
+                        <p class="text-gray-500">Upload and process materials to generate a knowledge map</p>
+                    </div>
+                    
+                    <!-- Map will be rendered here -->
+                    <svg id="knowledge-map" class="w-full h-full"></svg>
+                    
+                    <!-- Controls -->
+                    <div class="controls hidden">
+                        <button class="control-btn" id="zoom-in">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                        </button>
+                        <button class="control-btn" id="zoom-out">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12H6"></path>
+                            </svg>
+                        </button>
+                        <button class="control-btn" id="reset-view">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <!-- Filter Panel -->
+                    <div class="filter-panel hidden">
+                        <h3 class="font-medium text-gray-700 mb-2">Filters</h3>
+                        <div class="space-y-2" id="filter-options">
+                            <!-- Filter options will be generated here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Search Bar -->
+                    <div class="search-bar hidden">
+                        <input type="text" id="search-input" placeholder="Search concepts..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    
+                    <!-- View Buttons -->
+                    <div class="view-buttons hidden">
+                        <button class="view-btn active" data-view="network">Network</button>
+                        <button class="view-btn" data-view="hierarchy">Hierarchy</button>
+                        <button class="view-btn" data-view="clusters">Clusters</button>
+                    </div>
+                    
+                    <!-- Tooltip -->
+                    <div class="tooltip" id="tooltip"></div>
+                    
+                    <!-- Loading Indicator -->
+                    <div class="loading hidden" id="loading">
+                        <div class="text-center">
+                            <div class="spinner mb-3"></div>
+                            <p class="text-gray-700" id="loading-text">Processing...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Learning Journey Section (Initially Hidden) -->
+        <div id="learning-journey-section" class="mt-8 bg-white p-6 rounded-lg shadow-md hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-semibold text-gray-800">Learning Journey</h2>
+                <button id="back-to-map" class="flex items-center text-blue-600 hover:text-blue-800">
+                    <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                    </svg>
+                    Back to Knowledge Map
+                </button>
+            </div>
+            
+            <div class="journey-path-container mb-6 overflow-x-auto">
+                <div id="journey-path" class="flex items-center min-w-max py-2">
+                    <!-- Journey path will be rendered here -->
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2">
+                    <div id="concept-content" class="bg-gray-50 rounded-lg p-6 min-h-[400px]">
+                        <!-- Current concept content will be displayed here -->
+                    </div>
+                </div>
+                
+                <div>
+                    <h3 class="text-lg font-medium text-gray-700 mb-3">Related Concepts</h3>
+                    <div id="related-concepts" class="space-y-2">
+                        <!-- Related concepts will be listed here -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-6 flex justify-between">
+                <button id="prev-concept" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Previous
+                </button>
+                <button id="next-concept" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Next
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Main application logic
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM Elements
+            const dropArea = document.getElementById('drop-area');
+            const fileInput = document.getElementById('file-input');
+            const fileList = document.getElementById('file-list');
+            const processBtn = document.getElementById('process-btn');
+            const knowledgeMapContainer = document.getElementById('knowledge-map-container');
+            const knowledgeMap = document.getElementById('knowledge-map');
+            const loading = document.getElementById('loading');
+            const loadingText = document.getElementById('loading-text');
+            const controls = document.querySelector('.controls');
+            const filterPanel = document.querySelector('.filter-panel');
+            const searchBar = document.querySelector('.search-bar');
+            const viewButtons = document.querySelector('.view-buttons');
+            const tooltip = document.getElementById('tooltip');
+            const learningJourneySection = document.getElementById('learning-journey-section');
+            const backToMapBtn = document.getElementById('back-to-map');
+            
+            // State
+            let uploadedFiles = [];
+            let currentKnowledgeMap = null;
+            let currentView = 'network';
+            let simulation = null;
+            
+            // Event Listeners for File Upload
+            dropArea.addEventListener('click', () => fileInput.click());
+            
+            fileInput.addEventListener('change', handleFiles);
+            
+            dropArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropArea.classList.add('active');
+            });
+            
+            dropArea.addEventListener('dragleave', () => {
+                dropArea.classList.remove('active');
+            });
+            
+            dropArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropArea.classList.remove('active');
+                
+                const files = e.dataTransfer.files;
+                handleFiles({ target: { files } });
+            });
+            
+            processBtn.addEventListener('click', processFiles);
+            
+            // View Buttons Event Listeners
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentView = btn.dataset.view;
+                    renderKnowledgeMap(currentKnowledgeMap);
+                });
+            });
+            
+            // Zoom Controls
+            document.getElementById('zoom-in').addEventListener('click', () => {
+                // Zoom in logic will be implemented
+                console.log('Zoom in');
+            });
+            
+            document.getElementById('zoom-out').addEventListener('click', () => {
+                // Zoom out logic will be implemented
+                console.log('Zoom out');
+            });
+            
+            document.getElementById('reset-view').addEventListener('click', () => {
+                // Reset view logic will be implemented
+                console.log('Reset view');
+            });
+            
+            // Search Input
+            document.getElementById('search-input').addEventListener('input', (e) => {
+                const searchTerm = e.target.value.toLowerCase();
+                // Search logic will be implemented
+                console.log('Search:', searchTerm);
+            });
+            
+            // Learning Journey Navigation
+            backToMapBtn.addEventListener('click', () => {
+                learningJourneySection.classList.add('hidden');
+                knowledgeMapContainer.classList.remove('hidden');
+            });
+            
+            document.getElementById('prev-concept').addEventListener('click', () => {
+                // Previous concept logic will be implemented
+                console.log('Previous concept');
+            });
+            
+            document.getElementById('next-concept').addEventListener('click', () => {
+                // Next concept logic will be implemented
+                console.log('Next concept');
+            });
+            
+            // Functions
+            function handleFiles(event) {
+                const files = Array.from(event.target.files);
+                
+                if (files.length === 0) return;
+                
+                // Add files to the list
+                files.forEach(file => {
+                    // Check if file is already in the list
+                    if (uploadedFiles.some(f => f.name === file.name && f.size === file.size)) {
+                        return;
+                    }
+                    
+                    uploadedFiles.push({
+                        file,
+                        id: generateId(),
+                        status: 'pending'
+                    });
+                });
+                
+                updateFileList();
+                processBtn.disabled = uploadedFiles.length === 0;
+            }
+            
+            function updateFileList() {
+                if (uploadedFiles.length === 0) {
+                    fileList.innerHTML = '<div class="text-gray-500 text-center py-4">No files uploaded yet</div>';
+                    return;
+                }
+                
+                fileList.innerHTML = '';
+                
+                uploadedFiles.forEach(fileObj => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'file-item';
+                    
+                    let statusClass = '';
+                    let statusText = '';
+                    
+                    switch (fileObj.status) {
+                        case 'pending':
+                            statusClass = 'text-gray-500';
+                            statusText = 'Pending';
+                            break;
+                        case 'uploading':
+                            statusClass = 'text-blue-500';
+                            statusText = 'Uploading...';
+                            break;
+                        case 'processing':
+                            statusClass = 'processing';
+                            statusText = 'Processing...';
+                            break;
+                        case 'success':
+                            statusClass = 'success';
+                            statusText = 'Processed';
+                            break;
+                        case 'error':
+                            statusClass = 'error';
+                            statusText = 'Error';
+                            break;
+                    }
+                    
+                    fileItem.innerHTML = `
+                        <div>
+                            <div class="font-medium">${fileObj.file.name}</div>
+                            <div class="text-xs text-gray-500">${formatFileSize(fileObj.file.size)}</div>
+                        </div>
+                        <div class="status ${statusClass}">${statusText}</div>
+                    `;
+                    
+                    fileList.appendChild(fileItem);
+                });
+            }
+            
+            function processFiles() {
+                // In a real implementation, this would upload files to the server
+                // For this prototype, we'll simulate the process
+                
+                if (uploadedFiles.length === 0) return;
+                
+                // Show loading
+                loading.classList.remove('hidden');
+                loadingText.textContent = 'Uploading files...';
+                
+                // Update file statuses to uploading
+                uploadedFiles.forEach(fileObj => {
+                    fileObj.status = 'uploading';
+                });
+                updateFileList();
+                
+                // Simulate upload delay
+                setTimeout(() => {
+                    // Update file statuses to processing
+                    uploadedFiles.forEach(fileObj => {
+                        fileObj.status = 'processing';
+                    });
+                    updateFileList();
+                    
+                    loadingText.textContent = 'Processing files...';
+                    
+                    // Simulate processing delay
+                    setTimeout(() => {
+                        // Update file statuses to success
+                        uploadedFiles.forEach(fileObj => {
+                            fileObj.status = 'success';
+                        });
+                        updateFileList();
+                        
+                        loadingText.textContent = 'Generating knowledge map...';
+                        
+                        // Simulate knowledge map generation
+                        setTimeout(() => {
+                            // Generate sample knowledge map
+                            currentKnowledgeMap = generateSampleKnowledgeMap();
+                            
+                            // Render the knowledge map
+                            renderKnowledgeMap(currentKnowledgeMap);
+                            
+                            // Show controls and panels
+                            controls.classList.remove('hidden');
+                            filterPanel.classList.remove('hidden');
+                            searchBar.classList.remove('hidden');
+                            viewButtons.classList.remove('hidden');
+                            
+                            // Hide loading
+                            loading.classList.add('hidden');
+                        }, 2000);
+                    }, 2000);
+                }, 1500);
+            }
+            
+            function renderKnowledgeMap(mapData) {
+                if (!mapData) return;
+                
+                // Clear previous content
+                d3.select(knowledgeMap).selectAll('*').remove();
+                
+                // Remove placeholder text
+                knowledgeMapContainer.querySelector('p')?.remove();
+                
+                // Set up SVG
+                const svg = d3.select(knowledgeMap);
+                const width = knowledgeMapContainer.clientWidth;
+                const height = knowledgeMapContainer.clientHeight;
+                
+                // Create a group for the visualization
+                const g = svg.append('g');
+                
+                // Set up zoom behavior
+                const zoom = d3.zoom()
+                    .scaleExtent([0.1, 8])
+                    .on('zoom', (event) => {
+                        g.attr('transform', event.transform);
+                    });
+                
+                svg.call(zoom);
+                
+                // Render based on current view
+                if (currentView === 'network') {
+                    renderNetworkView(g, mapData, width, height);
+                } else if (currentView === 'hierarchy') {
+                    renderHierarchyView(g, mapData, width, height);
+                } else if (currentView === 'clusters') {
+                    renderClusterView(g, mapData, width, height);
+                }
+            }
+            
+            function renderNetworkView(g, mapData, width, height) {
+                // Create force simulation
+                simulation = d3.forceSimulation(mapData.nodes)
+                    .force('link', d3.forceLink(mapData.links).id(d => d.id).distance(100))
+                    .force('charge', d3.forceManyBody().strength(-300))
+                    .force('center', d3.forceCenter(width / 2, height / 2))
+                    .force('collision', d3.forceCollide().radius(d => d.size + 5));
+                
+                // Create links
+                const link = g.append('g')
+                    .attr('class', 'links')
+                    .selectAll('line')
+                    .data(mapData.links)
+                    .enter().append('line')
+                    .attr('class', 'link')
+                    .attr('stroke-width', d => Math.sqrt(d.weight));
+                
+                // Create nodes
+                const node = g.append('g')
+                    .attr('class', 'nodes')
+                    .selectAll('circle')
+                    .data(mapData.nodes)
+                    .enter().append('circle')
+                    .attr('class', 'node')
+                    .attr('r', d => d.size)
+                    .attr('fill', getNodeColor)
+                    .call(d3.drag()
+                        .on('start', dragstarted)
+                        .on('drag', dragged)
+                        .on('end', dragended));
+                
+                // Add node labels
+                const label = g.append('g')
+                    .attr('class', 'labels')
+                    .selectAll('text')
+                    .data(mapData.nodes)
+                    .enter().append('text')
+                    .text(d => d.label)
+                    .attr('font-size', 10)
+                    .attr('dx', 12)
+                    .attr('dy', 4);
+                
+                // Node tooltip
+                node.on('mouseover', function(event, d) {
+                    const [x, y] = d3.pointer(event, svg.node());
+                    
+                    tooltip.style.left = `${x + 10}px`;
+                    tooltip.style.top = `${y + 10}px`;
+                    tooltip.innerHTML = `
+                        <div class="font-medium">${d.label}</div>
+                        <div class="text-sm text-gray-600">Type: ${d.type}</div>
+                        <div class="text-sm text-gray-600">Importance: ${d.importance.toFixed(2)}</div>
+                    `;
+                    tooltip.style.opacity = 1;
+                })
+                .on('mouseout', function() {
+                    tooltip.style.opacity = 0;
+                })
+                .on('click', function(event, d) {
+                    // Show learning journey for the clicked node
+                    showLearningJourney(d);
+                });
+                
+                // Update positions on each tick
+                simulation.on('tick', () => {
+                    link
+                        .attr('x1', d => d.source.x)
+                        .attr('y1', d => d.source.y)
+                        .attr('x2', d => d.target.x)
+                        .attr('y2', d => d.target.y);
+                    
+                    node
+                        .attr('cx', d => d.x)
+                        .attr('cy', d => d.y);
+                    
+                    label
+                        .attr('x', d => d.x)
+                        .attr('y', d => d.y);
+                });
+                
+                // Drag functions
+                function dragstarted(event, d) {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                }
+                
+                function dragged(event, d) {
+                    d.fx = event.x;
+                    d.fy = event.y;
+                }
+                
+                function dragended(event, d) {
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                }
+            }
+            
+            function renderHierarchyView(g, mapData, width, height) {
+                // For this prototype, we'll use a simplified hierarchy view
+                // In a real implementation, this would use d3.hierarchy
+                
+                // Create a tree layout
+                const treeData = {
+                    name: "Knowledge Map",
+                    children: mapData.hierarchy.roots.map(root => ({
+                        name: root,
+                        children: getChildrenForNode(root, mapData.hierarchy.tree)
+                    }))
+                };
+                
+                const root = d3.hierarchy(treeData);
+                const treeLayout = d3.tree().size([width - 100, height - 100]);
+                treeLayout(root);
+                
+                // Create links
+                g.selectAll('.link')
+                    .data(root.links())
+                    .enter().append('path')
+                    .attr('class', 'link')
+                    .attr('d', d3.linkHorizontal()
+                        .x(d => d.y + 50)
+                        .y(d => d.x + 50));
+                
+                // Create nodes
+                const node = g.selectAll('.node')
+                    .data(root.descendants())
+                    .enter().append('g')
+                    .attr('class', 'node')
+                    .attr('transform', d => `translate(${d.y + 50},${d.x + 50})`)
+                    .on('click', function(event, d) {
+                        if (d.data.name !== "Knowledge Map") {
+                            showLearningJourney({ id: d.data.name, label: d.data.name });
+                        }
+                    });
+                
+                // Add circles to nodes
+                node.append('circle')
+                    .attr('r', 5)
+                    .attr('fill', d => d.depth === 0 ? '#1a73e8' : '#4CAF50');
+                
+                // Add labels to nodes
+                node.append('text')
+                    .attr('dy', '0.31em')
+                    .attr('x', d => d.children ? -8 : 8)
+                    .attr('text-anchor', d => d.children ? 'end' : 'start')
+                    .text(d => d.data.name)
+                    .attr('font-size', 10);
+                
+                function getChildrenForNode(nodeName, treeData) {
+                    const nodeData = treeData[nodeName];
+                    if (!nodeData || !nodeData.length) return [];
+                    
+                    return nodeData.map(child => ({
+                        name: child.concept,
+                        children: getChildrenForNode(child.concept, treeData)
+                    }));
+                }
+            }
+            
+            function renderClusterView(g, mapData, width, height) {
+                // For this prototype, we'll use a simplified cluster view
+                // In a real implementation, this would use more sophisticated clustering visualization
+                
+                // Create a pack layout for clusters
+                const clusters = mapData.clusters.map(cluster => ({
+                    name: cluster.name,
+                    value: cluster.size,
+                    children: cluster.concepts.map(concept => {
+                        const node = mapData.nodes.find(n => n.id === concept);
+                        return {
+                            name: concept,
+                            value: node ? node.importance * 10 : 1
+                        };
+                    })
+                }));
+                
+                const packData = { name: "root", children: clusters };
+                
+                const pack = d3.pack()
+                    .size([width - 50, height - 50])
+                    .padding(3);
+                
+                const root = d3.hierarchy(packData)
+                    .sum(d => d.value);
+                
+                const nodes = pack(root).descendants();
+                
+                // Create cluster circles
+                const node = g.selectAll('circle')
+                    .data(nodes)
+                    .enter().append('circle')
+                    .attr('class', d => d.depth === 1 ? 'cluster' : 'node')
+                    .attr('cx', d => d.x + 25)
+                    .attr('cy', d => d.y + 25)
+                    .attr('r', d => d.r)
+                    .attr('fill', d => d.depth === 0 ? 'none' : (d.depth === 1 ? 'rgba(26, 115, 232, 0.2)' : getNodeColor(d.data)))
+                    .attr('stroke', d => d.depth === 1 ? '#1a73e8' : 'none')
+                    .attr('stroke-width', 1)
+                    .attr('opacity', d => d.depth === 0 ? 0 : 1)
+                    .on('click', function(event, d) {
+                        if (d.depth === 2) {
+                            showLearningJourney({ id: d.data.name, label: d.data.name });
+                        }
+                    });
+                
+                // Add labels to clusters
+                g.selectAll('text')
+                    .data(nodes.filter(d => d.depth === 1))
+                    .enter().append('text')
+                    .attr('x', d => d.x + 25)
+                    .attr('y', d => d.y + 25)
+                    .attr('text-anchor', 'middle')
+                    .attr('dominant-baseline', 'middle')
+                    .text(d => d.data.name)
+                    .attr('font-size', d => Math.min(d.r / 3, 14))
+                    .attr('font-weight', 'bold')
+                    .attr('fill', '#333');
+            }
+            
+            function showLearningJourney(node) {
+                // Hide knowledge map and show learning journey
+                knowledgeMapContainer.classList.add('hidden');
+                learningJourneySection.classList.remove('hidden');
+                
+                // Set concept title
+                document.getElementById('concept-content').innerHTML = `
+                    <h2 class="text-2xl font-semibold mb-4">${node.label}</h2>
+                    <p class="mb-4">This is a personalized learning journey for the concept "${node.label}". In a full implementation, this would contain detailed content about the concept, examples, and interactive elements.</p>
+                    <p>The journey is specifically designed for pattern-seeking and big-picture cognitive styles, emphasizing connections and relationships between concepts rather than linear progression.</p>
+                    <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <h3 class="font-medium text-blue-800 mb-2">Pattern Recognition</h3>
+                        <p class="text-blue-700">This concept connects to several other concepts in the knowledge map, forming patterns that help understand the broader context.</p>
+                    </div>
+                `;
+                
+                // Generate journey path
+                const journeyPath = document.getElementById('journey-path');
+                journeyPath.innerHTML = '';
+                
+                // Add starting node
+                const startNode = document.createElement('div');
+                startNode.className = 'flex flex-col items-center mx-2';
+                startNode.innerHTML = `
+                    <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">1</div>
+                    <div class="text-sm mt-1">${node.label}</div>
+                `;
+                journeyPath.appendChild(startNode);
+                
+                // Add connector
+                const connector = document.createElement('div');
+                connector.className = 'w-16 h-0.5 bg-gray-300 mx-1';
+                journeyPath.appendChild(connector);
+                
+                // Add related nodes (in a real implementation, these would be actual related concepts)
+                for (let i = 2; i <= 5; i++) {
+                    const relatedNode = document.createElement('div');
+                    relatedNode.className = 'flex flex-col items-center mx-2';
+                    relatedNode.innerHTML = `
+                        <div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-700 font-bold">${i}</div>
+                        <div class="text-sm mt-1">Related ${i}</div>
+                    `;
+                    journeyPath.appendChild(relatedNode);
+                    
+                    if (i < 5) {
+                        const connector = document.createElement('div');
+                        connector.className = 'w-16 h-0.5 bg-gray-300 mx-1';
+                        journeyPath.appendChild(connector);
+                    }
+                }
+                
+                // Generate related concepts
+                const relatedConcepts = document.getElementById('related-concepts');
+                relatedConcepts.innerHTML = '';
+                
+                // In a real implementation, these would be actual related concepts
+                for (let i = 1; i <= 5; i++) {
+                    const relatedConcept = document.createElement('div');
+                    relatedConcept.className = 'p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer';
+                    relatedConcept.innerHTML = `
+                        <div class="font-medium">Related Concept ${i}</div>
+                        <div class="text-sm text-gray-600">Connection: ${['Prerequisite', 'Similar', 'Application', 'Extension', 'Contrast'][i-1]}</div>
+                    `;
+                    relatedConcepts.appendChild(relatedConcept);
+                    
+                    // Add click event to switch to this concept
+                    relatedConcept.addEventListener('click', () => {
+                        document.getElementById('concept-content').innerHTML = `
+                            <h2 class="text-2xl font-semibold mb-4">Related Concept ${i}</h2>
+                            <p>This is the content for Related Concept ${i}. In a full implementation, this would contain detailed information about this concept.</p>
+                        `;
+                    });
+                }
+            }
+            
+            // Utility Functions
+            function generateId() {
+                return Math.random().toString(36).substring(2, 15);
+            }
+            
+            function formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+            
+            function getNodeColor(d) {
+                // Color based on node type
+                const colorMap = {
+                    'noun_phrase': '#4285F4',  // Blue
+                    'key_term': '#34A853',     // Green
+                    'ORG': '#FBBC05',          // Yellow
+                    'PERSON': '#EA4335',       // Red
+                    'GPE': '#9C27B0',          // Purple
+                    'LOC': '#FF9800',          // Orange
+                    'PRODUCT': '#00BCD4',      // Cyan
+                    'EVENT': '#795548',        // Brown
+                    'WORK_OF_ART': '#607D8B',  // Blue Grey
+                    'LAW': '#E91E63'           // Pink
+                };
+                
+                return colorMap[d.type] || '#9E9E9E';  // Default to grey
+            }
+            
+            function generateSampleKnowledgeMap() {
+                // This function generates a sample knowledge map for demonstration
+                // In a real implementation, this would come from the backend
+                
+                // Generate nodes
+                const nodes = [];
+                const nodeTypes = ['noun_phrase', 'key_term', 'ORG', 'PERSON', 'GPE', 'LOC'];
+                
+                for (let i = 1; i <= 30; i++) {
+                    nodes.push({
+                        id: `concept${i}`,
+                        label: `Concept ${i}`,
+                        type: nodeTypes[Math.floor(Math.random() * nodeTypes.length)],
+                        importance: Math.random() * 0.8 + 0.2,
+                        frequency: Math.floor(Math.random() * 10) + 1,
+                        x: Math.random(),
+                        y: Math.random(),
+                        size: Math.random() * 10 + 5
+                    });
+                }
+                
+                // Generate links
+                const links = [];
+                
+                // Ensure each node has at least one connection
+                for (let i = 1; i < nodes.length; i++) {
+                    links.push({
+                        source: `concept${i}`,
+                        target: `concept${Math.floor(Math.random() * i) + 1}`,
+                        weight: Math.random() * 5 + 1,
+                        type: 'related'
+                    });
+                }
+                
+                // Add some more random connections
+                for (let i = 0; i < 20; i++) {
+                    const source = `concept${Math.floor(Math.random() * nodes.length) + 1}`;
+                    let target = `concept${Math.floor(Math.random() * nodes.length) + 1}`;
+                    
+                    // Ensure no self-loops
+                    while (source === target) {
+                        target = `concept${Math.floor(Math.random() * nodes.length) + 1}`;
+                    }
+                    
+                    links.push({
+                        source,
+                        target,
+                        weight: Math.random() * 5 + 1,
+                        type: 'related'
+                    });
+                }
+                
+                // Generate clusters
+                const clusters = [];
+                const numClusters = 5;
+                
+                for (let i = 1; i <= numClusters; i++) {
+                    const clusterSize = Math.floor(nodes.length / numClusters);
+                    const start = (i - 1) * clusterSize;
+                    const end = i === numClusters ? nodes.length : i * clusterSize;
+                    
+                    clusters.push({
+                        id: i,
+                        name: `Cluster ${i}`,
+                        concepts: nodes.slice(start, end).map(n => n.id),
+                        size: end - start
+                    });
+                }
+                
+                // Generate hierarchy
+                const hierarchy = {
+                    roots: ['concept1', 'concept2', 'concept3'],
+                    tree: {
+                        'concept1': [
+                            { concept: 'concept4', children: [] },
+                            { concept: 'concept5', children: [] }
+                        ],
+                        'concept2': [
+                            { concept: 'concept6', children: [] },
+                            { concept: 'concept7', children: [] }
+                        ],
+                        'concept3': [
+                            { concept: 'concept8', children: [] },
+                            { concept: 'concept9', children: [] }
+                        ]
+                    }
+                };
+                
+                return {
+                    nodes,
+                    links,
+                    clusters,
+                    hierarchy,
+                    metadata: {
+                        total_nodes: nodes.length,
+                        total_links: links.length,
+                        total_clusters: clusters.length
+                    }
+                };
+            }
+        });
+    </script>
+</body>
+</html>
